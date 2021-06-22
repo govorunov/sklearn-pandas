@@ -389,38 +389,36 @@ class DataFrameMapper(BaseEstimator, TransformerMixin):
         # at this point we lose track of which features
         # were created from which input columns, so it's
         # assumed that that doesn't matter to the model.
+        #
+        # actually we lose track of columns during transformation
+        # stage as generally n_input_features != n_transformed_features
 
-        # If any of the extracted features is sparse, combine sparsely.
-        # Otherwise, combine as normal arrays.
-        if any(sparse.issparse(fea) for fea in extracted):
-            stacked = sparse.hstack(extracted).tocsr()
-            # return a sparse matrix only if the mapper was initialized
-            # with sparse=True
-            if not self.sparse:
-                stacked = stacked.toarray()
-        else:
-            stacked = np.hstack(extracted)
-
-        if self.df_out:
-            # if no rows were dropped preserve the original index,
-            # otherwise use a new integer one
-            no_rows_dropped = len(X) == len(stacked)
-            if no_rows_dropped:
-                index = X.index
-            else:
-                index = None
-
+        if self.df_out:  # Output as pandas DataFrame
             # output different data types, if appropriate
             dtypes = self.get_dtypes(extracted)
-            df_out = pd.DataFrame(
-                stacked,
-                columns=self.transformed_names_,
-                index=index)
-            # preserve types
-            for col, dtype in zip(self.transformed_names_, dtypes):
-                df_out[col] = df_out[col].astype(dtype)
+            extracted_df = [
+                pd.DataFrame(data).astype(dtype)
+                for data, dtype in zip(extracted, dtypes)
+            ]
+            col_names = ['_'.join(feature[0])
+                         for feature in self.built_features]
+            df_out = pd.concat(extracted_df, keys=col_names, axis=1)
+            # if no rows were dropped preserve the original index,
+            # otherwise use a new integer one
+            if len(X) == len(df_out):  # No rows dropped
+                df_out.index = X.index
             return df_out
-        else:
+        else:  # Output as Numpy or sparse array
+            # If any of the extracted features is sparse, combine sparsely.
+            # Otherwise, combine as normal arrays.
+            if any(sparse.issparse(fea) for fea in extracted):
+                stacked = sparse.hstack(extracted).tocsr()
+                # return a sparse matrix only if the mapper was initialized
+                # with sparse=True
+                if not self.sparse:
+                    stacked = stacked.toarray()
+            else:
+                stacked = np.hstack(extracted)
             return stacked
 
     def transform(self, X):
